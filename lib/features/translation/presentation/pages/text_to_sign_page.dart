@@ -6,7 +6,6 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../../../app/router/app_routes.dart';
-import '../../../../utils/libras/libras_export.dart';
 
 class TextToSignPage extends StatefulWidget {
   const TextToSignPage({super.key});
@@ -27,15 +26,12 @@ class _TextToSignPageState extends State<TextToSignPage> {
   String _lastRecognizedWords = '';
 
   // Tradução
-  List<TranslatedSign>? _translatedSigns;
   bool _isTranslating = false;
 
   // Avatar VLibras
   WebViewController? _webViewController;
   bool _avatarReady = false;
-  bool _isPlaying = false;
   String _avatarStatus = 'Carregando avatar...';
-  String _currentGlosa = '';
 
   @override
   void initState() {
@@ -56,21 +52,20 @@ class _TextToSignPageState extends State<TextToSignPage> {
   void _initWebView() {
     final controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..addJavaScriptChannel(
-        'FlutterBridge',
-        onMessageReceived: (msg) => _onAvatarMessage(msg.message),
-      )
       ..setNavigationDelegate(NavigationDelegate(
         onPageFinished: (_) {
-          Future.delayed(const Duration(seconds: 2), () {
-            _webViewController?.runJavaScript(_buildInjectedScript());
-          });
+          if (mounted) {
+            setState(() {
+              _avatarReady = true;
+              _avatarStatus = 'Avatar pronto';
+            });
+          }
         },
         onWebResourceError: (error) {
           if (mounted) {
             setState(() {
               _avatarReady = false;
-              _avatarStatus = 'Erro de rede. Verifique sua conexão.';
+              _avatarStatus = 'Erro de rede. Verifique a sua ligação.';
             });
           }
         },
@@ -87,9 +82,17 @@ class _TextToSignPageState extends State<TextToSignPage> {
       padding: 0; 
       background-color: transparent; 
     }
+    /* Contentor invisível onde o Flutter insere o texto para o VLibras capturar */
+    #texto-alvo { 
+      position: absolute; 
+      color: transparent; 
+      z-index: -1;
+    }
   </style>
 </head>
 <body>
+  <div id="texto-alvo"></div>
+
   <div vw class="enabled">
     <div vw-access-button class="active"></div>
     <div vw-plugin-wrapper>
@@ -99,8 +102,28 @@ class _TextToSignPageState extends State<TextToSignPage> {
 
   <script src="https://vlibras.gov.br/app/vlibras-plugin.js"></script>
   <script>
-    // Inicialização correta apontando para o diretório
     new window.VLibras.Widget('https://vlibras.gov.br/app');
+
+    // Função que será chamada pelo Flutter quando clicar em Traduzir
+    function traduzirPeloVLibras(textoDigitado) {
+      var elemento = document.getElementById('texto-alvo');
+      elemento.innerText = textoDigitado;
+      elemento.click(); // Despoleta a tradução nativa do VLibras
+    }
+
+    // Código para forçar a abertura automática do avatar sem precisar de clique
+    var autoOpened = false;
+    function tryOpenAvatar() {
+      var btn = document.querySelector('[vw-access-button]');
+      if (btn && !autoOpened) {
+        btn.click();
+        autoOpened = true;
+      } else if (!autoOpened) {
+        setTimeout(tryOpenAvatar, 500);
+      }
+    }
+    // Inicia a tentativa de abertura 1 segundo após carregar
+    setTimeout(tryOpenAvatar, 1000);
   </script>
 </body>
 </html>
@@ -109,84 +132,12 @@ class _TextToSignPageState extends State<TextToSignPage> {
     setState(() => _webViewController = controller);
   }
 
-  String _buildInjectedScript() {
-    return r'''
-(function() {
-  var attempts = 0;
-  function waitForPlayer() {
-    attempts++;
-    if (attempts > 120) {
-      FlutterBridge.postMessage('error:timeout');
-      return;
-    }
-    var input = document.querySelector('input[placeholder]')
-              || document.querySelector('textarea')
-              || document.querySelector('input[type=text]');
-    if (input) {
-      FlutterBridge.postMessage('ready');
-      window.traduzir = function(glosa) {
-        try {
-          var nativeSetter = Object.getOwnPropertyDescriptor(
-            window.HTMLInputElement.prototype, 'value'
-          );
-          if (nativeSetter && nativeSetter.set) {
-            nativeSetter.set.call(input, glosa);
-          } else {
-            input.value = glosa;
-          }
-          input.dispatchEvent(new Event('input',  { bubbles: true }));
-          input.dispatchEvent(new Event('change', { bubbles: true }));
-          var buttons = document.querySelectorAll('button');
-          var clicked = false;
-          buttons.forEach(function(b) {
-            var txt = (b.textContent || b.innerText || '').toLowerCase();
-            var lbl = (b.getAttribute('aria-label') || '').toLowerCase();
-            if (!clicked && (txt.includes('traduz') || txt.includes('ok') || lbl.includes('traduz'))) {
-              b.click();
-              clicked = true;
-            }
-          });
-          FlutterBridge.postMessage('playing:' + glosa);
-        } catch(e) {
-          FlutterBridge.postMessage('error:' + e.message);
-        }
-      };
-      return;
-    }
-    setTimeout(waitForPlayer, 500);
-  }
-  waitForPlayer();
-})();
-''';
-  }
-
-  void _onAvatarMessage(String message) {
-    if (!mounted) return;
-    if (message == 'ready') {
-      setState(() { _avatarReady = true; _avatarStatus = 'Avatar pronto'; });
-    } else if (message.startsWith('playing:')) {
-      setState(() { _isPlaying = true; _avatarStatus = 'Reproduzindo sinal...'; });
-    } else if (message == 'animationEnd') {
-      setState(() { _isPlaying = false; _avatarStatus = 'Pronto'; });
-    } else if (message.startsWith('error:')) {
-      final detail = message.replaceFirst('error:', '');
-      setState(() {
-        _isPlaying = false;
-        _avatarStatus = detail == 'timeout'
-            ? 'Tempo limite — verifique sua conexão'
-            : 'Erro: $detail';
-      });
-    }
-  }
-
   // ── Tradução ──────────────────────────────────
 
-  String _buildGlosa(List<TranslatedSign> signs) {
-    return signs.map((s) => s.word.toUpperCase()).join(' ');
-  }
-
   Future<void> _translateText() async {
-    if (_controller.text.trim().isEmpty) {
+    final texto = _controller.text;
+
+    if (texto.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Por favor, digite algo para traduzir.')),
       );
@@ -198,49 +149,25 @@ class _TextToSignPageState extends State<TextToSignPage> {
 
     setState(() {
       _isTranslating = true;
-      _translatedSigns = null;
-      _isPlaying = false;
-      _avatarStatus = 'Processando texto...';
-      _currentGlosa = '';
+      _avatarStatus = 'A enviar para o VLibras...';
     });
 
-    await Future.delayed(const Duration(milliseconds: 300));
-    if (!mounted) return;
-
-    final signs = LibrasTranslator.translate(_controller.text);
-    final glosa = _buildGlosa(signs);
+    // Limpa caracteres problemáticos que poderiam quebrar o Javascript
+    final escapedText = texto.replaceAll("'", "\\'").replaceAll('"', '\\"').replaceAll('\n', ' ');
+    
+    // Injeta o texto diretamente no motor oficial do VLibras através da WebView
+    await _webViewController?.runJavaScript('traduzirPeloVLibras("$escapedText");');
 
     setState(() {
-      _translatedSigns = signs;
       _isTranslating = false;
-      _currentGlosa = glosa;
+      _avatarStatus = 'Sinalização em reprodução';
     });
-
-    if (glosa.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nenhum sinal encontrado para o texto digitado.')),
-      );
-      return;
-    }
-
-    await _sendGlosaToAvatar(glosa);
-  }
-
-  Future<void> _sendGlosaToAvatar(String glosa) async {
-    if (_webViewController == null) return;
-    final escaped = glosa.replaceAll("'", "\\'");
-    await _webViewController!.runJavaScript("window.traduzir('$escaped');");
-    setState(() { _isPlaying = true; _avatarStatus = 'Reproduzindo: $glosa'; });
-  }
-
-  Future<void> _replayGlosa() async {
-    if (_currentGlosa.isEmpty) return;
-    await _sendGlosaToAvatar(_currentGlosa);
   }
 
   void _reloadAvatar() {
-    setState(() { _avatarReady = false; _avatarStatus = 'Recarregando...'; });
-    _webViewController?.loadRequest(Uri.parse('https://vlibras.gov.br/app'));
+    setState(() { _avatarReady = false; _avatarStatus = 'A recarregar...'; });
+    // Correção: Agora usa reload em vez de tentar carregar o URL diretamente
+    _webViewController?.reload();
   }
 
   // ── Speech-to-Text ────────────────────────────
@@ -342,14 +269,6 @@ class _TextToSignPageState extends State<TextToSignPage> {
               style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
           _buildAvatarCard(),
-          if (_currentGlosa.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            _buildGlosaCard(),
-          ],
-          if (_translatedSigns != null && _translatedSigns!.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            _buildSignsChips(),
-          ],
         ],
       ),
     );
@@ -416,7 +335,7 @@ class _TextToSignPageState extends State<TextToSignPage> {
                   backgroundColor: const Color(0xFF2F80ED),
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(horizontal: 24)),
-              child: Text(_isTranslating ? 'Traduzindo...' : 'Traduzir',
+              child: Text(_isTranslating ? 'A traduzir...' : 'Traduzir',
                   style: const TextStyle(fontWeight: FontWeight.w700)),
             ),
           ),
@@ -448,8 +367,7 @@ class _TextToSignPageState extends State<TextToSignPage> {
               width: 8, height: 8,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: _isPlaying ? Colors.greenAccent
-                    : _avatarReady ? const Color(0xFF38bdf8) : Colors.orange,
+                color: _avatarReady ? const Color(0xFF38bdf8) : Colors.orange,
               ),
             ),
             const SizedBox(width: 8),
@@ -466,82 +384,9 @@ class _TextToSignPageState extends State<TextToSignPage> {
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
             ),
-            if (_currentGlosa.isNotEmpty)
-              IconButton(
-                onPressed: _isPlaying ? null : _replayGlosa,
-                icon: const Icon(Icons.replay_rounded, color: Color(0xFF38bdf8)),
-                tooltip: 'Repetir',
-                iconSize: 18,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-              ),
           ]),
         ),
       ]),
     );
-  }
-
-  Widget _buildGlosaCard() {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF0F9FF),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFBAE6FD)),
-      ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          const Icon(Icons.translate_rounded, size: 15, color: Color(0xFF0284C7)),
-          const SizedBox(width: 6),
-          Text('Glosa enviada ao avatar',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: const Color(0xFF0284C7), fontWeight: FontWeight.w600)),
-        ]),
-        const SizedBox(height: 6),
-        Text(_currentGlosa,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700,
-                color: Color(0xFF0C4A6E), letterSpacing: 0.5)),
-      ]),
-    );
-  }
-
-  Widget _buildSignsChips() {
-    final cs = Theme.of(context).colorScheme;
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Sinais identificados',
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
-      const SizedBox(height: 8),
-      Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.grey.withOpacity(0.05),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: const Color(0xFFE5E7EB)),
-        ),
-        child: Wrap(
-          spacing: 8, runSpacing: 8,
-          children: _translatedSigns!.map((sign) {
-            final hasVideo = sign.videoPaths.isNotEmpty || sign.isFound;
-            return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: hasVideo ? cs.primary.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                    color: hasVideo ? cs.primary.withOpacity(0.3) : const Color(0xFFE5E7EB)),
-              ),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(hasVideo ? Icons.check_circle_rounded : Icons.help_outline_rounded,
-                    size: 12, color: hasVideo ? cs.primary : Colors.grey),
-                const SizedBox(width: 4),
-                Text(sign.word,
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
-                        color: hasVideo ? cs.primary : Colors.grey)),
-              ]),
-            );
-          }).toList(),
-        ),
-      ),
-    ]);
   }
 }

@@ -56,8 +56,8 @@ class HomePage extends StatelessWidget {
                     title: 'Libras para Texto',
                     subtitle: 'Use a camera para',
                     color: const Color(0xFFDC2626),
-                    onTap: () => context.pushNamed(AppRouteNames.signToText),
-                  ),
+                    onTap: () => context.go(AppRoutePaths.camera),
+        ),
                   _buildResourceCard(
                     context,
                     icon: Icons.menu_book_rounded,
