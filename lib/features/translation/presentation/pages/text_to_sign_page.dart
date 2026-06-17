@@ -75,18 +75,51 @@ class _TextToSignPageState extends State<TextToSignPage> {
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <style>
-    body { 
+    html, body { 
       margin: 0; 
       padding: 0; 
-      background-color: transparent; 
+      width: 100vw; 
+      height: 100vh; 
+      background-color: #ffffff; 
+      overflow: hidden;
     }
-    /* Contentor invisível onde o Flutter insere o texto para o VLibras capturar */
     #texto-alvo { 
       position: absolute; 
       color: transparent; 
       z-index: -1;
+    }
+    
+    /* FORÇA O VLIBRAS A OCUPAR TODO O ESPAÇO SEM FLUTUAR */
+    div[vw] {
+      position: absolute !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      transform: none !important;
+      max-width: none !important;
+    }
+    
+    /* Oculta o botão flutuante já que abrimos via script */
+    div[vw-access-button] {
+      display: none !important;
+    }
+    
+    /* Expande o wrapper interno */
+    .vw-plugin-wrapper {
+      position: absolute !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      margin: 0 !important;
+      max-width: none !important;
+      background: #ffffff !important;
+      border-radius: 0 !important;
     }
   </style>
 </head>
@@ -104,14 +137,12 @@ class _TextToSignPageState extends State<TextToSignPage> {
   <script>
     new window.VLibras.Widget('https://vlibras.gov.br/app');
 
-    // Função que será chamada pelo Flutter quando clicar em Traduzir
     function traduzirPeloVLibras(textoDigitado) {
       var elemento = document.getElementById('texto-alvo');
       elemento.innerText = textoDigitado;
-      elemento.click(); // Despoleta a tradução nativa do VLibras
+      elemento.click(); 
     }
 
-    // Código para forçar a abertura automática do avatar sem precisar de clique
     var autoOpened = false;
     function tryOpenAvatar() {
       var btn = document.querySelector('[vw-access-button]');
@@ -122,7 +153,6 @@ class _TextToSignPageState extends State<TextToSignPage> {
         setTimeout(tryOpenAvatar, 500);
       }
     }
-    // Inicia a tentativa de abertura 1 segundo após carregar
     setTimeout(tryOpenAvatar, 1000);
   </script>
 </body>
@@ -166,7 +196,6 @@ class _TextToSignPageState extends State<TextToSignPage> {
 
   void _reloadAvatar() {
     setState(() { _avatarReady = false; _avatarStatus = 'A recarregar...'; });
-    // Correção: Agora usa reload em vez de tentar carregar o URL diretamente
     _webViewController?.reload();
   }
 
@@ -347,42 +376,56 @@ class _TextToSignPageState extends State<TextToSignPage> {
   Widget _buildAvatarCard() {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF0f172a),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF1e293b), width: 1.5),
+        border: Border.all(color: const Color(0xFFE5E7EB), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          )
+        ],
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(children: [
         SizedBox(
-          height: 300,
+          height: 420,
           child: _webViewController != null
               ? WebViewWidget(controller: _webViewController!)
-              : const Center(child: CircularProgressIndicator(color: Colors.white)),
+              : const Center(child: CircularProgressIndicator(color: Color(0xFF2F80ED))),
         ),
+        
+        // Barra inferior de status
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          color: const Color(0xFF1e293b),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: const BoxDecoration(
+            color: Color(0xFFF8FAFC),
+            border: Border(top: BorderSide(color: Color(0xFFE5E7EB), width: 1.5)),
+          ),
           child: Row(children: [
             Container(
               width: 8, height: 8,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: _avatarReady ? const Color(0xFF38bdf8) : Colors.orange,
+                color: _avatarReady ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
               ),
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: Text(_avatarStatus,
-                  style: const TextStyle(color: Color(0xFF94a3b8), fontSize: 12),
-                  overflow: TextOverflow.ellipsis),
+              child: Text(
+                _avatarStatus,
+                style: const TextStyle(color: Color(0xFF4B5563), fontSize: 13, fontWeight: FontWeight.w500),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
             IconButton(
               onPressed: _reloadAvatar,
-              icon: const Icon(Icons.refresh_rounded, color: Color(0xFF94a3b8)),
+              icon: const Icon(Icons.refresh_rounded, color: Color(0xFF6B7280)),
               tooltip: 'Recarregar avatar',
-              iconSize: 18,
+              iconSize: 20,
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             ),
           ]),
         ),
